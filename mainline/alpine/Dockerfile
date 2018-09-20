@@ -1,6 +1,4 @@
-FROM alpine:3.7
-
-LABEL maintainer="NGINX Docker Maintainers <docker-maint@nginx.com>"
+FROM alpine:3.8
 
 ENV NGINX_VERSION 1.15.3
 
@@ -49,10 +47,12 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
 		--with-compat \
 		--with-file-aio \
 		--with-http_v2_module \
+        --add-module=/usr/src/nginx-video-thumbextractor-module \
 	" \
 	&& addgroup -S nginx \
 	&& adduser -D -S -h /var/cache/nginx -s /sbin/nologin -G nginx nginx \
-	&& apk add --no-cache --virtual .build-deps \
+	&& sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+	&& apk add --no-cache  --virtual .build-deps \
 		gcc \
 		libc-dev \
 		make \
@@ -61,10 +61,14 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
 		zlib-dev \
 		linux-headers \
 		curl \
-		gnupg1 \
+		gnupg \
 		libxslt-dev \
 		gd-dev \
+		libexif-dev \
 		geoip-dev \
+        libjpeg-turbo-dev \
+        imagemagick-dev \
+        ffmpeg-dev \
 	&& curl -fSL https://nginx.org/download/nginx-$NGINX_VERSION.tar.gz -o nginx.tar.gz \
 	&& curl -fSL https://nginx.org/download/nginx-$NGINX_VERSION.tar.gz.asc  -o nginx.tar.gz.asc \
 	&& export GNUPGHOME="$(mktemp -d)" \
@@ -85,6 +89,11 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
 	&& tar -zxC /usr/src -f nginx.tar.gz \
 	&& rm nginx.tar.gz \
 	&& cd /usr/src/nginx-$NGINX_VERSION \
+	&& curl -fSL https://raw.githubusercontent.com/linsongze/ngx_http_image_filter_module/master/ngx_http_image_filter_module.c -o src/http/modules/ngx_http_image_filter_module.c \
+	&& sed -i  's/ngx_feature_libs="-lgd"/ngx_feature_libs="-lgd -lexif"/' auto/lib/libgd/conf \
+    && curl -fSL https://codeload.github.com/wandenberg/nginx-video-thumbextractor-module/tar.gz/0.9.0 -o /usr/src/video-thumbextractor.tar.gz \
+    && tar -zxC /usr/src -f /usr/src/video-thumbextractor.tar.gz \
+    && mv /usr/src/nginx-video-thumbextractor-module* /usr/src/nginx-video-thumbextractor-module/ \
 	&& ./configure $CONFIG --with-debug \
 	&& make -j$(getconf _NPROCESSORS_ONLN) \
 	&& mv objs/nginx objs/nginx-debug \
@@ -108,13 +117,13 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
 	&& ln -s ../../usr/lib/nginx/modules /etc/nginx/modules \
 	&& strip /usr/sbin/nginx* \
 	&& strip /usr/lib/nginx/modules/*.so \
-	&& rm -rf /usr/src/nginx-$NGINX_VERSION \
+	&& rm -rf /usr/src/* \
 	\
 	# Bring in gettext so we can get `envsubst`, then throw
 	# the rest away. To do this, we need to install `gettext`
 	# then move `envsubst` out of the way so `gettext` can
 	# be deleted completely, then move `envsubst` back.
-	&& apk add --no-cache --virtual .gettext gettext \
+	&& apk add --no-cache  --virtual .gettext gettext \
 	&& mv /usr/bin/envsubst /tmp/ \
 	\
 	&& runDeps="$( \
@@ -123,24 +132,31 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
 			| sort -u \
 			| awk 'system("[ -e /usr/local/lib/" $1 " ]") == 0 { next } { print "so:" $1 }' \
 	)" \
-	&& apk add --no-cache --virtual .nginx-rundeps $runDeps \
+	&& apk add --no-cache  --virtual .nginx-rundeps $runDeps \
 	&& apk del .build-deps \
 	&& apk del .gettext \
 	&& mv /tmp/envsubst /usr/local/bin/ \
 	\
 	# Bring in tzdata so users could set the timezones through the environment
 	# variables
-	&& apk add --no-cache tzdata \
+	&& apk add --no-cache  tzdata \
 	\
 	# forward request and error logs to docker log collector
 	&& ln -sf /dev/stdout /var/log/nginx/access.log \
-	&& ln -sf /dev/stderr /var/log/nginx/error.log
-
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY nginx.vh.default.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
+	&& ln -sf /dev/stderr /var/log/nginx/error.log	\
+	&& echo -e "#!/bin/sh \n\
+		if [ ! -d '/root/nginx' ];then	\n\
+			mkdir /root/nginx	\n\
+		fi	\n\
+		if [ ! -f '/root/nginx/nginx.conf' ];then	\n\
+			cp /etc/nginx/nginx.conf /root/nginx/nginx.conf	\n\
+		fi \n\
+		rm -f /etc/nginx/nginx.conf \n\
+		ln -s /root/nginx/nginx.conf /etc/nginx/nginx.conf \n\
+		nginx -g 'daemon off;' \
+	" >> /root/run.sh	\
+	&& chmod +x /root/run.sh
 
 STOPSIGNAL SIGTERM
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/root/run.sh"]
