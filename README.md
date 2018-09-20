@@ -1,9 +1,8 @@
-# About this Repo
+# 缩略图增强
 
-This is the Git repo of the official Docker image for [nginx](https://registry.hub.docker.com/_/nginx/). See the
-Hub page for the full readme on how to use the Docker image and for information
-regarding contributing and issues.
+在原有nginx-docker 基础上添加了以下模块
 
-The full readme is generated over in [docker-library/docs](https://github.com/docker-library/docs),
-specificially in [docker-library/docs/nginx](https://github.com/docker-library/docs/tree/master/nginx).
+- [wandenberg/nginx-video-thumbextractor-module](https://github.com/wandenberg/nginx-video-thumbextractor-module) 
+- [linsongze/ngx_http_image_filter_module](https://github.com/linsongze/ngx_http_image_filter_module)
 
+添加了图片以及视频缩略图并缓存的配置。详情看nginx.conf
